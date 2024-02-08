@@ -4,6 +4,12 @@
 Clear-Host
 Import-Module  -Name AzureAD 
 
+
+
+
+
+
+
 function connect_ms_apps {
     try {
 
@@ -54,6 +60,50 @@ function retrieve_olduser_email_address_for_new_user {
         }  
     } while ($true)
 }
+function select_license_type_for_new_user {
+    $available_licenses = @()
+    $licenses_across_organisation = Get-AzureADSubscribedSku 
+    $license_number = 0
+
+    ForEach ($license in $licenses_across_organisation ) {
+        # $enabled_licenses = $license | Select-Object @{Name = 'PrepaidUnitsEnabled'; Expression = { $_.PrepaidUnits.Enabled } }
+        # $available_units = [int]$enabled_licenses.PrepaidUnitsEnabled - [int]$license.ConsumedUnits
+        $available_units = [int]$license.ConsumedUnits
+        if ($available_units -gt 0 <#-and $available_units -lt 1000 #>) {
+            $license_number += 1
+
+            $license_info = New-Object PSObject -Property @{
+                LicenseNumber = $license_number
+                NumberOfFreeLicenses = $available_units
+                LicenseType   = $license.SkuPartNumber
+                LicenseSkuId = $license.SkuId
+            }
+            $available_licenses += $license_info
+        }
+    }
+    $available_licenses_output = $available_licenses | Format-Table -Property LicenseNumber, LicenseType, NumberOfFreeLicenses -AutoSize | Out-String
+
+    if($available_licenses.Count -eq  0 ){
+        $answer = Read-Host "No available licenses. An Exchange mailbox will not be created.`nDo you want to proceed? (y/n)" 
+        if($answer -ne "y"){
+            Write-Host "The account has not been created."
+            Start-Sleep 5
+            close_ms_sessions
+            return $null
+        }
+    }else{
+        do {
+            $selected_number  = Read-Host  -Prompt "$available_licenses_output`nChoose the license you want to assign to the user.`nType the chosen LicenseNumber"         
+            $selected_license = $available_licenses | Where-Object { $_.LicenseNumber -eq $selected_number }
+
+            if ($selected_license) {
+                return  $selected_license.LicenseSkuId
+            } else {
+                    Write-Host "Chosen license number is not available, please try again" -ForegroundColor Red
+            }
+        } while ($true)
+    }
+}
 
 function retrieve_OldUserDataForNewUser {
     param($OldUserEmail)
@@ -76,10 +126,6 @@ function retrieve_OldUserDataForNewUser {
 
     return $userInfo, $oldUserGroupMembership
 }
-
-
-
-
 
 function create_email_address {
     param (
@@ -121,14 +167,14 @@ function create_email_address {
 
 function generate_user_password {
     param (
-        [int] $Length = 16  # Długość hasła (domyślnie 12)
+        [int] $length = 16  # Długość hasła (domyślnie 12)
     )
 
     $CharacterSet = [System.Collections.Generic.List[char]]@()
     $CharacterSet.AddRange([char[]]'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?')
 
     $SecureRandom = [System.Security.Cryptography.RNGCryptoServiceProvider]::Create()
-    $RandomBytes = New-Object byte[] $Length
+    $RandomBytes = New-Object byte[] $length
     $SecureRandom.GetBytes($RandomBytes)
 
     $Password = -join ($RandomBytes | ForEach-Object { $CharacterSet[$_ % $CharacterSet.Count] })
@@ -140,13 +186,14 @@ function generate_user_password {
 }
 
 function loading_animation {
-    param($DurationInSeconds = 35)
-
+    param (
+        [System.Management.Automation.Job]$Job
+    )
     $AnimationChars = @('\', '|', '/', '-')
-    $StartTime = Get-Date
     Write-Host "Configuring Exchange"
     Write-Host "This may take a while..."
-    while ((Get-Date).AddSeconds(-$DurationInSeconds) -lt $StartTime) {
+
+    while ($Job.State -eq 'Running') {
         foreach ($char in $AnimationChars) {
             Write-Host -NoNewline $char 
             Start-Sleep -Milliseconds 250
@@ -158,6 +205,7 @@ function loading_animation {
 function create_newuser {
     $name_of_newuser, $surname_of_newuser = retrieve_newuser_name_and_surname
     $Email, $Smtp = create_email_address -FirstName $name_of_newuser -LastName $surname_of_newuser
+    $chosen_license_skuid = select_license_type_for_new_user 
     $olduser_email = retrieve_olduser_email_address_for_new_user
     $oldUserData, $oldusergroups = retrieve_OldUserDataForNewUser -OldUserEmail $olduser_email
     $PasswordProfile = generate_user_password
@@ -175,7 +223,7 @@ function create_newuser {
         -Surname   $surname_of_newuser `
         -UsageLocation  $($oldUserData.UserLocation)
     
-    Clear-Host
+    # Clear-Host
     try {
         $userID = (Get-AzureADUser -ObjectId $($Email + "@" + $($oldUserData.OldUserDomain))).ObjectId
         $oldusermanagerID = (Get-AzureADUserManager -ObjectId $olduser_email).ObjectId
@@ -195,27 +243,49 @@ function create_newuser {
     
 
 
-
+    #adding license to new user
     $License = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicense
-    $License.SkuId = $oldUserData.LicenseType   
+    $License.SkuId = $chosen_license_skuid
     $assignlic = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicenses
     $assignlic.AddLicenses = $License
     Set-AzureADUserLicense -ObjectId $($Email + "@" + $($oldUserData.OldUserDomain))  -AssignedLicenses $assignlic
     
-    loading_animation
-    Set-Mailbox $($Email + "@" + $($oldUserData.OldUserDomain)) -EmailAddresses "SMTP:$($Smtp + "@" + $($oldUserData.OldUserDomain))"
-    Clear-Host
+
+
+    
+
+
+    $job = Start-Job -ScriptBlock {
+         #configuring smtp address in exchange 
+        try{
+            Set-Mailbox $($Email + "@" + $($oldUserData.OldUserDomain)) -EmailAddresses "SMTP:$($Smtp + "@" + $($oldUserData.OldUserDomain))"
+
+        }catch {
+            Write-Host "Exchange not configured! This may be caused by no license attached to the account." -ForegroundColor yellow
+
+        }
+        # Clear-Host
+    }
+    
+    do {
+        loading_animation -Job $job
+    } until ($job.State -eq 'Completed')
+
+    $result = Receive-Job $job
+    Write-Output  $result 
+    Remove-Job $job
+
 
     Write-Host "User $name_of_newuser $surname_of_newuser has been created succesfully!!! `n"  -ForegroundColor Green
     Write-Host "Created user MS365 login: " -ForegroundColor DarkCyan
     Write-Host $($Email + "@" + $($oldUserData.OldUserDomain)) `n 
     Write-Host "Created user MS365 password: "  -ForegroundColor DarkCyan
     Write-Host  $PasswordProfile.Password `n`n 
-    $elo = Read-Host "Do you want to see user config?(y/n): "
-    if ($elo -eq "n") { 
+    $yes_or_no = Read-Host "Do you want to see user config?(y/n): "
+    if ($yes_or_no -eq "n") { 
         exit
     }
-    elseif ($elo -eq "y") {
+    elseif ($yes_or_no -eq "y") {
         Get-AzureADUser -ObjectId $($Email + "@" + $($oldUserData.OldUserDomain)) | Format-List
     }
     else {
