@@ -94,16 +94,16 @@ function select_license_type_for_new_user {
             $selected_number = Read-Host  -Prompt "$available_licenses_output`nChoose the license you want to assign to the user.`nType the chosen LicenseNumber"         
             $selected_license = $available_licenses | Where-Object { $_.LicenseNumber -eq $selected_number }
 
-                if ($selected_license) {
-                    return  $selected_license.LicenseSkuId
-                }
-                else {
-                    Write-Host "Chosen license number is not available, please try again" -ForegroundColor Red
-                }
-            } while ($true)
-        }
+            if ($selected_license) {
+                return  $selected_license.LicenseSkuId
+            }
+            else {
+                Write-Host "Chosen license number is not available, please try again" -ForegroundColor Red
+            }
+        } while ($true)
     }
 }
+
 
 
 function retrieve_OldUserDataForNewUser {
