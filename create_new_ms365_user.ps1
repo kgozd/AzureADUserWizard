@@ -16,7 +16,8 @@ function connect_ms_apps {
         Connect-ExchangeOnline -Credential $UserCredential
         Clear-Host
 
-    }catch{
+    }
+    catch {
         Write-Host "Not proper password or username provided!!!" -ForegroundColor Red
         Exit
     }
@@ -69,36 +70,39 @@ function select_license_type_for_new_user {
         if ($available_units -gt 0 -and $available_units -lt 1000 ) {
             $license_number += 1
 
-            $license_info = New-Object PSObject -Property @{
-                LicenseNumber = $license_number
-                NumberOfFreeLicenses = $available_units
-                LicenseType   = $license.SkuPartNumber
-                LicenseSkuId = $license.SkuId
+                $license_info = New-Object PSObject -Property @{
+                    LicenseNumber        = $license_number
+                    NumberOfFreeLicenses = $available_units
+                    LicenseType          = $license.SkuPartNumber
+                    LicenseSkuId         = $license.SkuId
+                }
+                $available_licenses += $license_info
             }
-            $available_licenses += $license_info
         }
-    }
-    $available_licenses_output = $available_licenses | Format-Table -Property LicenseNumber, LicenseType, NumberOfFreeLicenses -AutoSize | Out-String
+        $available_licenses_output = $available_licenses | Format-Table -Property LicenseNumber, LicenseType, NumberOfFreeLicenses -AutoSize | Out-String
 
-    if($available_licenses.Count -eq  0 ){
-        $answer = Read-Host "No available licenses. An Exchange mailbox will not be created.`nDo you want to proceed? (y/n)" 
-        if($answer -ne "y"){
-            Write-Host "The account has not been created."
-            Start-Sleep 5
-            close_ms_sessions
-            return $null
+        if ($available_licenses.Count -eq 0 ) {
+            $answer = Read-Host "No available licenses. An Exchange mailbox will not be created.`nDo you want to proceed? (y/n)" 
+            if ($answer -ne "y") {
+                Write-Host "The account has not been created."
+                Start-Sleep 5
+                close_ms_sessions
+                return $null
+            }
         }
-    }else{
-        do {
-            $selected_number  = Read-Host  -Prompt "$available_licenses_output`nChoose the license you want to assign to the user.`nType the chosen LicenseNumber"         
-            $selected_license = $available_licenses | Where-Object { $_.LicenseNumber -eq $selected_number }
+        else {
+            do {
+                $selected_number = Read-Host  -Prompt "$available_licenses_output`nChoose the license you want to assign to the user.`nType the chosen LicenseNumber"         
+                $selected_license = $available_licenses | Where-Object { $_.LicenseNumber -eq $selected_number }
 
-            if ($selected_license) {
-                return  $selected_license.LicenseSkuId
-            } else {
+                if ($selected_license) {
+                    return  $selected_license.LicenseSkuId
+                }
+                else {
                     Write-Host "Chosen license number is not available, please try again" -ForegroundColor Red
-            }
-        } while ($true)
+                }
+            } while ($true)
+        }
     }
 }
 
@@ -191,6 +195,7 @@ function create_newuser {
     $oldUserData, $oldusergroups = retrieve_OldUserDataForNewUser -OldUserEmail $olduser_email
     $PasswordProfile = generate_user_password
 
+
     New-AzureADUser `
         -PasswordProfile $PasswordProfile    `
         -DisplayName $($name_of_newuser + " " + "$surname_of_newuser" )     `
@@ -248,6 +253,7 @@ function create_newuser {
     Write-Host $($Email + "@" + $($oldUserData.OldUserDomain)) `n 
     Write-Host "Created user MS365 password: "  -ForegroundColor DarkCyan
     Write-Host  $PasswordProfile.Password `n`n 
+    $yes_or_no = Read-Host "Do you want to see user config?(y/n)"
     $yes_or_no = Read-Host "Do you want to see user config?(y/n)"
     if ($yes_or_no -eq "n") { 
         exit
