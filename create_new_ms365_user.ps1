@@ -66,43 +66,41 @@ function select_license_type_for_new_user {
     ForEach ($license in $licenses_across_organisation ) {
         $enabled_licenses = $license | Select-Object @{Name = 'PrepaidUnitsEnabled'; Expression = { $_.PrepaidUnits.Enabled } }
         $available_units = [int]$enabled_licenses.PrepaidUnitsEnabled - [int]$license.ConsumedUnits
-        # $available_units = [int]$license.ConsumedUnits
         if ($available_units -gt 0 -and $available_units -lt 1000 ) {
             $license_number += 1
 
-                $license_info = New-Object PSObject -Property @{
-                    LicenseNumber        = $license_number
-                    NumberOfFreeLicenses = $available_units
-                    LicenseType          = $license.SkuPartNumber
-                    LicenseSkuId         = $license.SkuId
-                }
-                $available_licenses += $license_info
+            $license_info = New-Object PSObject -Property @{
+                LicenseNumber        = $license_number
+                NumberOfFreeLicenses = $available_units
+                LicenseType          = $license.SkuPartNumber
+                LicenseSkuId         = $license.SkuId
             }
+            $available_licenses += $license_info
         }
-        $available_licenses_output = $available_licenses | Format-Table -Property LicenseNumber, LicenseType, NumberOfFreeLicenses -AutoSize | Out-String
+    }
+    $available_licenses_output = $available_licenses | Format-Table -Property LicenseNumber, LicenseType, NumberOfFreeLicenses -AutoSize | Out-String
 
-        if ($available_licenses.Count -eq 0 ) {
-            $answer = Read-Host "No available licenses. An Exchange mailbox will not be created.`nDo you want to proceed? (y/n)" 
-            if ($answer -ne "y") {
-                Write-Host "The account has not been created."
-                Start-Sleep 5
-                close_ms_sessions
-                return $null
+    if ($available_licenses.Count -eq 0 ) {
+        $answer = Read-Host "No available licenses. An Exchange mailbox will not be created.`nDo you want to proceed? (y/n)" 
+        if ($answer -ne "y") {
+            Write-Host "The account has not been created."
+            Start-Sleep 5
+            close_ms_sessions
+            return $null
+        }
+    }
+    else {
+        do {
+            $selected_number = Read-Host  -Prompt "$available_licenses_output`nChoose the license you want to assign to the user.`nType the chosen LicenseNumber"         
+            $selected_license = $available_licenses | Where-Object { $_.LicenseNumber -eq $selected_number }
+
+            if ($selected_license) {
+                return  $selected_license.LicenseSkuId
             }
-        }
-        else {
-            do {
-                $selected_number = Read-Host  -Prompt "$available_licenses_output`nChoose the license you want to assign to the user.`nType the chosen LicenseNumber"         
-                $selected_license = $available_licenses | Where-Object { $_.LicenseNumber -eq $selected_number }
-
-                if ($selected_license) {
-                    return  $selected_license.LicenseSkuId
-                }
-                else {
-                    Write-Host "Chosen license number is not available, please try again" -ForegroundColor Red
-                }
-            } while ($true)
-        }
+            else {
+                Write-Host "Chosen license number is not available, please try again" -ForegroundColor Red
+            }
+        } while ($true)
     }
 }
 
@@ -169,7 +167,7 @@ function create_email_address {
 
 function generate_user_password {
     param (
-        [int] $length = 16  # Długość hasła (domyślnie 12)
+        [int] $length = 16  
     )
     $CharacterSet = [System.Collections.Generic.List[char]]@()
     $CharacterSet.AddRange([char[]]'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?')
@@ -207,7 +205,6 @@ function create_newuser {
         -Surname   $surname_of_newuser `
         -UsageLocation  $($oldUserData.UserLocation)
     
-    # Clear-Host
     try {
         $userID = (Get-AzureADUser -ObjectId $($Email + "@" + $($oldUserData.OldUserDomain))).ObjectId
         $oldusermanagerID = (Get-AzureADUserManager -ObjectId $olduser_email).ObjectId
@@ -217,7 +214,7 @@ function create_newuser {
         Write-Host "No managers has been assigned!" -ForegroundColor Red
     }
 
-     #adding license to new user
+    #adding license to new user
     $License = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicense
     $License.SkuId = $chosen_license_skuid
     $assignlic = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicenses
@@ -234,7 +231,7 @@ function create_newuser {
     $old_user_groupcount = $oldusergroups.Count
     $new_user_groupcount = (Get-AzureADUserMembership -ObjectId $userID).Count
     
-    if($new_user_groupcount -ne $old_user_groupcount){
+    if ($new_user_groupcount -ne $old_user_groupcount) {
         Write-Host "The number of groups assigned to the new user is different from that of the old user."
     }
 
@@ -242,7 +239,6 @@ function create_newuser {
     Write-Host "This may take a while..."
     try {
         Set-Mailbox $($using:Email + "@" + $($using:olduserdomain)) -EmailAddresses "SMTP:$($using:Smtp + "@" + $($using:olduserdomain))"
-        # Set-Mailbox -Identity "GradyA@7qcgzb.onmicrosoft.com" -EmailAddresses "SMTP:grady.archi@7qcgzb.onmicrosoft.com"
     }
     catch {
         Write-Host "Exchange not configured! This may be caused by no license attached to the account." -ForegroundColor yellow
