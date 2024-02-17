@@ -66,10 +66,10 @@ function select_license_type_for_new_user {
     $license_number = 0
 
     ForEach ($license in $licenses_across_organisation ) {
-        # $enabled_licenses = $license | Select-Object @{Name = 'PrepaidUnitsEnabled'; Expression = { $_.PrepaidUnits.Enabled } }
-        # $available_units = [int]$enabled_licenses.PrepaidUnitsEnabled - [int]$license.ConsumedUnits
-        $available_units = [int]$license.ConsumedUnits
-        if ($available_units -gt 0 <#-and $available_units -lt 1000 #>) {
+        $enabled_licenses = $license | Select-Object @{Name = 'PrepaidUnitsEnabled'; Expression = { $_.PrepaidUnits.Enabled } }
+        $available_units = [int]$enabled_licenses.PrepaidUnitsEnabled - [int]$license.ConsumedUnits
+        # $available_units = [int]$license.ConsumedUnits
+        if ($available_units -gt 0 -and $available_units -lt 1000 ) {
             $license_number += 1
 
             $license_info = New-Object PSObject -Property @{
@@ -111,7 +111,7 @@ function retrieve_OldUserDataForNewUser {
     $oldUserGroupMembership = Get-AzureADUser -ObjectId $OldUserEmail | Get-AzureADUserMembership
     $oldUserManager = Get-AzureADUserManager -ObjectId $OldUserEmail
     $oldUserData = Get-AzureADUser -ObjectId $OldUserEmail
-    $oldUserLicenseType = Get-AzureADUserLicenseDetail -ObjectId $OldUserEmail
+    # $oldUserLicenseType = Get-AzureADUserLicenseDetail -ObjectId $OldUserEmail
     $OldUserDomain = $OldUserEmail -split "@" | Select-Object -Last 1 
 
     $userInfo = [PSCustomObject]@{
@@ -185,22 +185,7 @@ function generate_user_password {
     return $PasswordProfile
 }
 
-function loading_animation {
-    param (
-        [System.Management.Automation.Job]$Job
-    )
-    $AnimationChars = @('\', '|', '/', '-')
-    Write-Host "Configuring Exchange"
-    Write-Host "This may take a while..."
 
-    while ($Job.State -eq 'Running') {
-        foreach ($char in $AnimationChars) {
-            Write-Host -NoNewline $char 
-            Start-Sleep -Milliseconds 250
-            [Console]::SetCursorPosition(([Console]::CursorLeft - 1), [Console]::CursorTop)
-        }
-    }
-}
 
 function create_newuser {
     $name_of_newuser, $surname_of_newuser = retrieve_newuser_name_and_surname
@@ -210,8 +195,6 @@ function create_newuser {
     $oldUserData, $oldusergroups = retrieve_OldUserDataForNewUser -OldUserEmail $olduser_email
     $PasswordProfile = generate_user_password
 
-
-    
     New-AzureADUser `
         -PasswordProfile $PasswordProfile    `
         -DisplayName $($name_of_newuser + " " + "$surname_of_newuser" )     `
@@ -232,48 +215,44 @@ function create_newuser {
     catch {
         Write-Host "No managers has been assigned!" -ForegroundColor Red
     }
-    try {
-        ForEach ($group in $oldusergroups) {
-            Add-AzureADGroupMember -ObjectId $group.ObjectId -RefObjectId $userID
-        }
-    }
-    catch {
-        Write-Host "No groups has been assigned!" -ForegroundColor Red
-    }
-    
 
 
-    #adding license to new user
+     #adding license to new user
     $License = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicense
     $License.SkuId = $chosen_license_skuid
     $assignlic = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicenses
     $assignlic.AddLicenses = $License
     Set-AzureADUserLicense -ObjectId $($Email + "@" + $($oldUserData.OldUserDomain))  -AssignedLicenses $assignlic
-    
 
 
-    
+
+    try {
+        ForEach ($group in $oldusergroups) {
+            Add-AzureADGroupMember -ObjectId $group.ObjectId -RefObjectId $userID
+            Add-DistributionGroupMember -Identity  $group.ObjectId -Member  $userID
 
 
-    $job = Start-Job -ScriptBlock {
-         #configuring smtp address in exchange 
-        try{
-            Set-Mailbox $($Email + "@" + $($oldUserData.OldUserDomain)) -EmailAddresses "SMTP:$($Smtp + "@" + $($oldUserData.OldUserDomain))"
-
-        }catch {
-            Write-Host "Exchange not configured! This may be caused by no license attached to the account." -ForegroundColor yellow
 
         }
-        # Clear-Host
     }
+    catch {}
+    $old_user_groupcount = $oldusergroups.Count
+    $new_user_groupcount = (Get-AzureADUserMembership -ObjectId $userID).Count
     
-    do {
-        loading_animation -Job $job
-    } until ($job.State -eq 'Completed')
+    if($new_user_groupcount -ne $old_user_groupcount){
+        Write-Host "The number of groups assigned to the new user is different from that of the old user."
+    }
 
-    $result = Receive-Job $job
-    Write-Output  $result 
-    Remove-Job $job
+
+    Write-Host "Configuring Exchange"
+    Write-Host "This may take a while..."
+    try {
+        Set-Mailbox $($using:Email + "@" + $($using:olduserdomain)) -EmailAddresses "SMTP:$($using:Smtp + "@" + $($using:olduserdomain))"
+        # Set-Mailbox -Identity "GradyA@7qcgzb.onmicrosoft.com" -EmailAddresses "SMTP:grady.archi@7qcgzb.onmicrosoft.com"
+    }
+    catch {
+        Write-Host "Exchange not configured! This may be caused by no license attached to the account." -ForegroundColor yellow
+    }
 
 
     Write-Host "User $name_of_newuser $surname_of_newuser has been created succesfully!!! `n"  -ForegroundColor Green
@@ -281,7 +260,7 @@ function create_newuser {
     Write-Host $($Email + "@" + $($oldUserData.OldUserDomain)) `n 
     Write-Host "Created user MS365 password: "  -ForegroundColor DarkCyan
     Write-Host  $PasswordProfile.Password `n`n 
-    $yes_or_no = Read-Host "Do you want to see user config?(y/n): "
+    $yes_or_no = Read-Host "Do you want to see user config?(y/n)"
     if ($yes_or_no -eq "n") { 
         exit
     }
