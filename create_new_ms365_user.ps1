@@ -70,41 +70,41 @@ function select_license_type_for_new_user {
         if ($available_units -gt 0 -and $available_units -lt 1000 ) {
             $license_number += 1
 
-                $license_info = New-Object PSObject -Property @{
-                    LicenseNumber        = $license_number
-                    NumberOfFreeLicenses = $available_units
-                    LicenseType          = $license.SkuPartNumber
-                    LicenseSkuId         = $license.SkuId
-                }
-                $available_licenses += $license_info
+            $license_info = New-Object PSObject -Property @{
+                LicenseNumber        = $license_number
+                NumberOfFreeLicenses = $available_units
+                LicenseType          = $license.SkuPartNumber
+                LicenseSkuId         = $license.SkuId
             }
-        }
-        $available_licenses_output = $available_licenses | Format-Table -Property LicenseNumber, LicenseType, NumberOfFreeLicenses -AutoSize | Out-String
-
-        if ($available_licenses.Count -eq 0 ) {
-            $answer = Read-Host "No available licenses. An Exchange mailbox will not be created.`nDo you want to proceed? (y/n)" 
-            if ($answer -ne "y") {
-                Write-Host "The account has not been created."
-                Start-Sleep 5
-                close_ms_sessions
-                return $null
-            }
-        }
-        else {
-            do {
-                $selected_number = Read-Host  -Prompt "$available_licenses_output`nChoose the license you want to assign to the user.`nType the chosen LicenseNumber"         
-                $selected_license = $available_licenses | Where-Object { $_.LicenseNumber -eq $selected_number }
-
-                if ($selected_license) {
-                    return  $selected_license.LicenseSkuId
-                }
-                else {
-                    Write-Host "Chosen license number is not available, please try again" -ForegroundColor Red
-                }
-            } while ($true)
+            $available_licenses += $license_info
         }
     }
+    $available_licenses_output = $available_licenses | Format-Table -Property LicenseNumber, LicenseType, NumberOfFreeLicenses -AutoSize | Out-String
+
+    if ($available_licenses.Count -eq 0 ) {
+        $answer = Read-Host "No available licenses. An Exchange mailbox will not be created.`nDo you want to proceed? (y/n)" 
+        if ($answer -ne "y") {
+            Write-Host "The account has not been created."
+            Start-Sleep 5
+            close_ms_sessions
+            return $null
+        }
+    }
+    else {
+        do {
+            $selected_number = Read-Host  -Prompt "$available_licenses_output`nChoose the license you want to assign to the user.`nType the chosen LicenseNumber"         
+            $selected_license = $available_licenses | Where-Object { $_.LicenseNumber -eq $selected_number }
+
+            if ($selected_license) {
+                return  $selected_license.LicenseSkuId
+            }
+            else {
+                Write-Host "Chosen license number is not available, please try again" -ForegroundColor Red
+            }
+        } while ($true)
+    }
 }
+
 
 
 function retrieve_OldUserDataForNewUser {
@@ -217,7 +217,7 @@ function create_newuser {
         Write-Host "No managers has been assigned!" -ForegroundColor Red
     }
 
-     #adding license to new user
+    #adding license to new user
     $License = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicense
     $License.SkuId = $chosen_license_skuid
     $assignlic = New-Object -TypeName Microsoft.Open.AzureAD.Model.AssignedLicenses
@@ -234,7 +234,7 @@ function create_newuser {
     $old_user_groupcount = $oldusergroups.Count
     $new_user_groupcount = (Get-AzureADUserMembership -ObjectId $userID).Count
     
-    if($new_user_groupcount -ne $old_user_groupcount){
+    if ($new_user_groupcount -ne $old_user_groupcount) {
         Write-Host "The number of groups assigned to the new user is different from that of the old user."
     }
 
