@@ -42,7 +42,10 @@ function retrieve_olduser_email_address_for_new_user {
         $oldUserEmail = Read-Host "Type an email of the old user"
         $user = Get-AzureADUser -ObjectId $oldUserEmail.Trim()
         if ($user) {
-            return $user.Mail
+
+
+            return $user.UserPrincipalName
+            
         }
         else {
             Clear-Host
